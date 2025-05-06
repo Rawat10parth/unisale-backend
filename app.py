@@ -53,10 +53,10 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "tactile-rigging-451008-a0-f0a39b
 
 # Add Google Cloud SQL Configuration
 CLOUD_SQL_CONFIG = {
-    'host': '34.131.40.156',  # Your Cloud SQL instance IP
-    'user': 'root',           # Your Cloud SQL username
-    'password': 'parth@123',  # Your Cloud SQL password
-    'database': 'unisale',    # Your database name
+    'host': os.environ.get('DB_HOST', '34.131.40.156'),
+    'user': os.environ.get('DB_USER', 'root'),
+    'password': os.environ.get('DB_PASSWORD', 'parth@123'),
+    'database': os.environ.get('DB_NAME', 'unisale'),
 }
 #my ip 106.215.163.19
 
@@ -77,7 +77,23 @@ def get_db_connection():
 
 # =================== FIREBASE AUTH SETUP =================== #
 
-cred = credentials.Certificate("firebase-adminsdk.json")  # Update path
+if os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON'):
+    # Create a temporary file for Firebase credentials
+    service_account_info = json.loads(os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON'))
+    
+    # Create a temporary file
+    fd, firebase_cred_path = tempfile.mkstemp()
+    os.close(fd)
+    
+    with open(firebase_cred_path, 'w') as f:
+        json.dump(service_account_info, f)
+    
+    # Use the temporary file for Firebase initialization
+    cred = credentials.Certificate(firebase_cred_path)
+else:
+    # Fallback to local file for development
+    cred = credentials.Certificate("firebase-adminsdk.json")
+
 firebase_admin.initialize_app(cred)
 
 # After existing Firebase initialization
