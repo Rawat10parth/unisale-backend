@@ -47,7 +47,8 @@ GRAPH_API_ENDPOINT = os.getenv("GRAPH_API_ENDPOINT", "https://graph.microsoft.co
 # Allowed university domain
 ALLOWED_DOMAIN = "stu.upes.ac.in"
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "tactile-rigging-451008-a0-f0a39bd91c95.json"
+if not os.environ.get('GOOGLE_APPLICATION_CREDENTIALS') and os.path.exists("tactile-rigging-451008-a0-f0a39bd91c95.json"):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "tactile-rigging-451008-a0-f0a39bd91c95.json"
 
 # =================== MYSQL CONNECTION SETUP =================== #
 
