@@ -1,21 +1,21 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from app import app as flask_app
 import os
 import json
+import tempfile
 
-app = Flask(__name__)
-CORS(app, resources={
-    r"/*": {
-        "origins": ["https://unisale-frontend.vercel.app", "https://unisale-1556d.web.app", "http://localhost:5173"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# Create temporary credentials file from environment variable
+if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON'):
+    service_account_info = json.loads(os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON'))
+    
+    # Create a temporary file for the credentials
+    fd, path = tempfile.mkstemp()
+    os.close(fd)
+    
+    with open(path, 'w') as f:
+        json.dump(service_account_info, f)
+    
+    # Set environment variable to the path of the temp file
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = path
 
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({"message": "Welcome to UniSale API!"})
-
-@app.route("/api/test", methods=["GET"])
-def test():
-    return jsonify({"status": "success", "message": "API is working!"})
+# The handler for Vercel
+app = flask_app
