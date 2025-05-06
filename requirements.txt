@@ -5,3 +5,5 @@ python-dotenv==1.0.0
 firebase-admin==6.2.0
 google-cloud-storage==2.10.0
 Werkzeug==2.3.7
+cloud-sql-python-connector==1.2.4
+pymysql==1.0.3
