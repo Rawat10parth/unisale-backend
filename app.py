@@ -254,10 +254,6 @@ def delete_from_gcs(public_url):
         print(f"Error deleting image from GCS: {str(e)}")
 
 
-# Use our cloud_sql_connector function
-db = get_db_connection()
-cursor = db.cursor()
-
 @app.route("/api/upload", methods=["POST"])
 def upload_product():
     try:
@@ -846,8 +842,6 @@ def create_order():
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         try:
-            # Start transaction - Changed from begin() to start_transaction()
-            conn.start_transaction()
 
             # Get cart items first
             cursor.execute("""
@@ -1065,8 +1059,5 @@ def get_order_details(order_id):
         
     except Exception as e:
         print(f"Error fetching order details: {str(e)}")
-
-
-app = Flask(__name__)
 
 # curl -X POST -F "image=@Zoro-Wallpaper-4k.jpg" http://127.0.0.1:5000/upload-image
