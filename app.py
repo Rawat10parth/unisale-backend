@@ -1039,9 +1039,6 @@ def get_order_details(order_id):
         print(f"Error fetching order details: {str(e)}")
 
 
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 8080))  # Use PORT env variable or default to 8080
-    app.run(host="0.0.0.0", port=port)
+app = Flask(__name__)
 
 # curl -X POST -F "image=@Zoro-Wallpaper-4k.jpg" http://127.0.0.1:5000/upload-image
