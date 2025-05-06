@@ -21,7 +21,7 @@ app = Flask(__name__)
 # Update CORS configuration to handle all routes and methods
 CORS(app, resources={
     r"/*": {
-        "origins": ["https://unisale-frontend-exi3.vercel.app/", "http://localhost:5173"],
+        "origins": ["https://unisale-frontend.vercel.app/", "http://localhost:5173"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
     }
