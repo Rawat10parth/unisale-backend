@@ -11,6 +11,8 @@ from google.cloud import storage
 import uuid, tempfile
 from werkzeug.utils import secure_filename
 import traceback
+import pymysql
+from google.cloud.sql.connector import Connector
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +26,9 @@ CORS(app, resources={
         "allow_headers": ["Content-Type", "Authorization"]
     }
 })
+
+# Initialize Connector object
+connector = Connector()
 
 
 # Secret key for session management
@@ -61,18 +66,25 @@ CLOUD_SQL_CONFIG = {
 }
 #my ip 106.215.163.19
 
-# Update the database connection function
+# Function to create a connection to Cloud SQL
 def get_db_connection():
     try:
-        connection = mysql.connector.connect(
-            host=CLOUD_SQL_CONFIG['host'],
-            user=CLOUD_SQL_CONFIG['user'],
-            password=CLOUD_SQL_CONFIG['password'],
-            database=CLOUD_SQL_CONFIG['database'],
+        # Format: project:region:instance
+        instance_connection_name = os.environ.get(
+            "INSTANCE_CONNECTION_NAME", 
+            "tactile-rigging-451008:us-central1:unisale-db"  # Replace with your actual instance name
         )
-        return connection
-    except mysql.connector.Error as err:
-        print(f"Error connecting to Cloud SQL: {err}")
+        
+        conn = connector.connect(
+            instance_connection_name=instance_connection_name,
+            driver="pymysql",
+            user=os.environ.get("DB_USER", "root"),
+            password=os.environ.get("DB_PASSWORD", "parth@123"),
+            db=os.environ.get("DB_NAME", "unisale"),
+        )
+        return conn
+    except Exception as e:
+        print(f"Error connecting to Cloud SQL: {e}")
         raise
 
 
@@ -127,14 +139,14 @@ def get_current_user_id():
 
 # Get product by ID
 def get_product_by_id(product_id):
-    cursor = mysql.connection.cursor(dictionary=True)
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
     cursor.execute("SELECT * FROM product WHERE id = %s", (product_id,))
     return cursor.fetchone()
 
 
 # Delete product by ID
 def delete_product_by_id(product_id):
-    cursor = mysql.connection.cursor()
+    ccursor = conn.cursor(pymysql.cursors.DictCursor)
     cursor.execute("DELETE FROM product WHERE id = %s", (product_id,))
     mysql.connection.commit()
 
@@ -151,7 +163,7 @@ def get_users():
     """Fetch all users from the database (test route)."""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id, name, email, verified FROM users")
         users = cursor.fetchall()
         conn.close()
@@ -168,7 +180,7 @@ def signup():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         # Check if user already exists
         cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
@@ -242,9 +254,8 @@ def delete_from_gcs(public_url):
         print(f"Error deleting image from GCS: {str(e)}")
 
 
-db = mysql.connector.connect(
-    host="34.131.40.156", user="root", password="parth@123", database="unisale"
-)
+# Use our cloud_sql_connector function
+db = get_db_connection()
 cursor = db.cursor()
 
 @app.route("/api/upload", methods=["POST"])
@@ -295,7 +306,7 @@ def get_profile():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT id, name, profile_picture, phone FROM users WHERE email = %s", (email,))
         user = cursor.fetchone()
         conn.close()
@@ -360,7 +371,7 @@ def update_phone_number():
 def get_products():
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         # Include id so that products in the frontend have an identifier.
         cursor.execute("SELECT id, user_id, name, description, category, state, price, image_url FROM products")
         products = cursor.fetchall()
@@ -426,7 +437,7 @@ def toggle_wishlist():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         # Check if item exists
         cursor.execute(
@@ -516,7 +527,7 @@ def get_wishlist():
 def get_product_detail(product_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         # Get product details
         cursor.execute("""
@@ -572,7 +583,7 @@ def get_user_by_id(users_id):
     """Fetch user information by ID."""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(
             "SELECT id, name, email, phone, profile_picture FROM users WHERE id = %s",
             (users_id,)
@@ -679,7 +690,7 @@ def get_cart():
             return jsonify({"error": "Unauthorized"}), 401
 
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         cursor.execute("""
             SELECT c.id as cart_id, c.quantity, 
@@ -705,7 +716,7 @@ def get_cart():
 def get_cart_items(user_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         cursor.execute("""
             SELECT c.*, p.name, p.price, p.image_url, p.description 
@@ -731,7 +742,7 @@ def add_to_cart():
     
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         # Check if item exists in cart
         cursor.execute(
@@ -803,7 +814,7 @@ def check_wishlist_status(product_id):
     user_id = data.get('userId')
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         cursor.execute(
             "SELECT * FROM wishlist WHERE users_id = %s AND product_id = %s",
@@ -832,7 +843,7 @@ def create_order():
 
         data = request.json
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         try:
             # Start transaction - Changed from begin() to start_transaction()
@@ -917,7 +928,7 @@ def get_orders():
             return jsonify({"error": "Unauthorized"}), 401
 
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         # Updated query with correct JOIN condition
         cursor.execute("""
@@ -994,7 +1005,7 @@ def get_order_details(order_id):
             return jsonify({"error": "Unauthorized"}), 401
 
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         # Get order details
         cursor.execute("""
