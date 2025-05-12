@@ -11,8 +11,6 @@ from google.cloud import storage
 import uuid, tempfile
 from werkzeug.utils import secure_filename
 import traceback
-import pymysql
-from google.cloud.sql.connector import Connector
 
 # Load environment variables
 load_dotenv()
@@ -21,15 +19,11 @@ app = Flask(__name__)
 # Update CORS configuration to handle all routes and methods
 CORS(app, resources={
     r"/*": {
-        "origins": ["https://unisale-frontend.vercel.app/", "http://localhost:5173"],
+        "origins": ["http://localhost:5173"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
+        "allow_headers": ["Content-Type", "Authorization"]
     }
 })
-
-# Initialize Connector object
-connector = Connector()
 
 
 # Secret key for session management
@@ -53,61 +47,49 @@ GRAPH_API_ENDPOINT = os.getenv("GRAPH_API_ENDPOINT", "https://graph.microsoft.co
 # Allowed university domain
 ALLOWED_DOMAIN = "stu.upes.ac.in"
 
-if not os.environ.get('GOOGLE_APPLICATION_CREDENTIALS') and os.path.exists("tactile-rigging-451008-a0-f0a39bd91c95.json"):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "tactile-rigging-451008-a0-f0a39bd91c95.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "tactile-rigging-451008-a0-f0a39bd91c95.json"
 
 # =================== MYSQL CONNECTION SETUP =================== #
 
 # Add Google Cloud SQL Configuration
-CLOUD_SQL_CONFIG = {
-    'host': os.environ.get('DB_HOST', '34.131.40.156'),
-    'user': os.environ.get('DB_USER', 'root'),
-    'password': os.environ.get('DB_PASSWORD', 'parth@123'),
-    'database': os.environ.get('DB_NAME', 'unisale'),
-}
-#my ip 106.215.163.19
+# CLOUD_SQL_CONFIG = {
+#     'host': '34.131.110.57',  # Your Cloud SQL instance IP
+#     'user': 'root',           # Your Cloud SQL username
+#     'password': 'parth@123',  # Your Cloud SQL password
+#     'database': 'unisale',    # Your database name
+# }
+# #my ip 106.215.163.19
 
-# Function to create a connection to Cloud SQL
+# # Update the database connection function
+# def get_db_connection():
+#     try:
+#         connection = mysql.connector.connect(
+#             host=CLOUD_SQL_CONFIG['host'],
+#             user=CLOUD_SQL_CONFIG['user'],
+#             password=CLOUD_SQL_CONFIG['password'],
+#             database=CLOUD_SQL_CONFIG['database'],
+#         )
+#         return connection
+#     except mysql.connector.Error as err:
+#         print(f"Error connecting to Cloud SQL: {err}")
+#         raise
+
 def get_db_connection():
     try:
-        # Format: project:region:instance
-        instance_connection_name = os.environ.get(
-            "INSTANCE_CONNECTION_NAME", 
-            "tactile-rigging-451008:us-central1:unisale-db"  # Replace with your actual instance name
+        connection = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="unisale"
         )
-        
-        conn = connector.connect(
-            instance_connection_name=instance_connection_name,
-            driver="pymysql",
-            user=os.environ.get("DB_USER", "root"),
-            password=os.environ.get("DB_PASSWORD", "parth@123"),
-            db=os.environ.get("DB_NAME", "unisale"),
-        )
-        return conn
-    except Exception as e:
-        print(f"Error connecting to Cloud SQL: {e}")
+        return connection
+    except mysql.connector.Error as err:
+        print(f"Error connecting to MySQL: {err}")
         raise
-
 
 # =================== FIREBASE AUTH SETUP =================== #
 
-if os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON'):
-    # Create a temporary file for Firebase credentials
-    service_account_info = json.loads(os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON'))
-    
-    # Create a temporary file
-    fd, firebase_cred_path = tempfile.mkstemp()
-    os.close(fd)
-    
-    with open(firebase_cred_path, 'w') as f:
-        json.dump(service_account_info, f)
-    
-    # Use the temporary file for Firebase initialization
-    cred = credentials.Certificate(firebase_cred_path)
-else:
-    # Fallback to local file for development
-    cred = credentials.Certificate("firebase-adminsdk.json")
-
+cred = credentials.Certificate("firebase-adminsdk.json")  # Update path
 firebase_admin.initialize_app(cred)
 
 # After existing Firebase initialization
@@ -140,14 +122,14 @@ def get_current_user_id():
 
 # Get product by ID
 def get_product_by_id(product_id):
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    cursor = mysql.connection.cursor(dictionary=True)
     cursor.execute("SELECT * FROM product WHERE id = %s", (product_id,))
     return cursor.fetchone()
 
 
 # Delete product by ID
 def delete_product_by_id(product_id):
-    ccursor = conn.cursor(pymysql.cursors.DictCursor)
+    cursor = mysql.connection.cursor()
     cursor.execute("DELETE FROM product WHERE id = %s", (product_id,))
     mysql.connection.commit()
 
@@ -164,7 +146,7 @@ def get_users():
     """Fetch all users from the database (test route)."""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT id, name, email, verified FROM users")
         users = cursor.fetchall()
         conn.close()
@@ -181,7 +163,7 @@ def signup():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
 
         # Check if user already exists
         cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
@@ -254,17 +236,112 @@ def delete_from_gcs(public_url):
     except Exception as e:
         print(f"Error deleting image from GCS: {str(e)}")
 
+# File extension validation helper
+def allowed_file(filename):
+    """Check if the file extension is allowed"""
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route("/api/upload", methods=["POST"])
+
+# db = mysql.connector.connect(
+#     host="34.131.110.57", user="root", password="parth@123", database="unisale"
+# )
+# cursor = db.cursor()
+
+db = mysql.connector.connect(
+    host="localhost", user="root", password="", database="unisale"
+)
+cursor = db.cursor()
+
+@app.route('/api/upload', methods=['POST'])
+@app.route('/api/upload', methods=['POST', 'OPTIONS'])
 def upload_product():
+    """Handle single image product upload"""
+    # Handle preflight CORS requests
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
+        print("Single image upload started...")
+        
+        # Get form data
+        user_id = request.form.get('user_id')
+        name = request.form.get('name')
+        description = request.form.get('description')
+        category = request.form.get('category')
+        state = request.form.get('state', 'Not specified')
+        price = request.form.get('price')
+        original_price = request.form.get('original_price')
+        months_used = request.form.get('months_used')
+        
+        print(f"Received product data: {name}, {category}, {price}")
+        
+        # Validate required fields
+        if not all([user_id, name, description, category, price]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Check if image file is present
+        if 'image' not in request.files:
+            print("No image file found in request")
+            return jsonify({"error": "No image file found"}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+        
+        # Upload image to Google Cloud Storage
+        image_url = gcs_upload_image(file, "product-image")
+        if not image_url:
+            return jsonify({"error": "Failed to upload image"}), 500
+        
+        print(f"Image uploaded to GCS: {image_url}")
+        
+        # Create database connection
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Your code here
+        
+        # Insert product into database
+        cursor.execute("""
+            INSERT INTO products 
+            (user_id, name, description, category, state, price, image_url, original_price, months_used)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            user_id, 
+            name, 
+            description, 
+            category, 
+            state, 
+            price, 
+            image_url,
+            original_price if original_price else None,
+            months_used if months_used else None
+        ))
+        
+        # Get the inserted product ID
+        product_id = cursor.lastrowid
+        
+        # Also add the image to product_images table
+        cursor.execute("""
+            INSERT INTO product_images (product_id, image_url)
+            VALUES (%s, %s)
+        """, (product_id, image_url))
+        
         conn.commit()
         cursor.close()
         conn.close()
+        
+        print(f"Product {product_id} created successfully")
+        
+        return jsonify({
+            "message": "Product uploaded successfully",
+            "product_id": product_id,
+            "image_url": image_url
+        })
+            
     except Exception as e:
+        print(f"Error in upload_product: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -303,7 +380,7 @@ def get_profile():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT id, name, profile_picture, phone FROM users WHERE email = %s", (email,))
         user = cursor.fetchone()
         conn.close()
@@ -367,14 +444,57 @@ def update_phone_number():
 @app.route("/get-products", methods=["GET"])
 def get_products():
     try:
+        search = request.args.get('search', '')
+        category = request.args.get('category', '')
+        condition = request.args.get('condition', '')
+        sort_order = request.args.get('sort', 'newest')
+
+        query = """
+            SELECT p.id, p.user_id, p.name, p.description, p.category, p.state, p.price, p.image_url 
+            FROM products p 
+            WHERE 1=1
+        """
+        params = []
+
+        # Add search condition
+        if search:
+            query += " AND (p.name LIKE %s OR p.description LIKE %s)"
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        # Add category filter
+        if category and category != 'All':
+            query += " AND p.category = %s"
+            params.append(category)
+
+        # Add condition filter
+        if condition:
+            query += " AND p.state = %s"
+            params.append(condition)
+
+        # Add sorting
+        if sort_order == 'low-to-high':
+            query += " ORDER BY p.price ASC"
+        elif sort_order == 'high-to-low':
+            query += " ORDER BY p.price DESC"
+        else:  # newest
+            query += " ORDER BY p.created_at DESC"
+
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-        # Include id so that products in the frontend have an identifier.
-        cursor.execute("SELECT id, user_id, name, description, category, state, price, image_url FROM products")
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, params)
         products = cursor.fetchall()
+
+        # Convert decimal values to float for JSON serialization
+        for product in products:
+            if 'price' in product and product['price'] is not None:
+                product['price'] = float(product['price'])
+
         conn.close()
         return jsonify(products)
+
     except Exception as e:
+        print(f"Error fetching products: {e}")
+        traceback.print_exc()  # Print full stack trace for debugging
         return jsonify({"error": str(e)}), 500
 
 
@@ -434,9 +554,9 @@ def toggle_wishlist():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
 
-        # Check if item exists
+        # Check if item exists in wishlist
         cursor.execute(
             "SELECT * FROM wishlist WHERE users_id = %s AND image_url = %s",
             (user_id, image_url)
@@ -465,6 +585,7 @@ def toggle_wishlist():
 
     except Exception as e:
         print(f"Error in toggle-wishlist: {str(e)}")
+        import traceback
         traceback.print_exc()  # Add full traceback
         return jsonify({"error": str(e)}), 500
 
@@ -524,7 +645,7 @@ def get_wishlist():
 def get_product_detail(product_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
 
         # Get product details
         cursor.execute("""
@@ -580,7 +701,7 @@ def get_user_by_id(users_id):
     """Fetch user information by ID."""
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT id, name, email, phone, profile_picture FROM users WHERE id = %s",
             (users_id,)
@@ -605,76 +726,105 @@ def get_user_by_id(users_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/upload-multiple", methods=["POST"])
-def upload_multiple_images():
-    if 'images[]' not in request.files:
-        return jsonify({"error": "No images uploaded"}), 400
-
-    files = request.files.getlist('images[]')
-    if not files or len(files) == 0:
-        return jsonify({"error": "No valid images found"}), 400
-
-    uploaded_urls = []
+@app.route('/api/upload-multiple', methods=['POST', 'OPTIONS'])
+def upload_multiple():
+    # Handle preflight CORS requests
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
+        # Get form data
+        user_id = request.form.get('user_id')
+        name = request.form.get('name')
+        description = request.form.get('description')
+        category = request.form.get('category')
+        state = request.form.get('state', 'Not specified')
+        price = request.form.get('price')
+        original_price = request.form.get('original_price')
+        months_used = request.form.get('months_used')
+        
+        print(f"Received product data: name={name}, category={category}, price={price}, user_id={user_id}")
+        
+        # Validate required fields
+        if not all([user_id, name, description, category, price]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Check if image files are present
+        if 'images[]' not in request.files:
+            print("No images found in request")
+            return jsonify({"error": "No images part"}), 400
+        
+        files = request.files.getlist('images[]')
+        if len(files) == 0 or files[0].filename == '':
+            return jsonify({"error": "No images selected"}), 400
+        
+        # Upload to Google Cloud Storage and get URLs
+        image_urls = []
+        for file in files:
+            if file and allowed_file(file.filename):
+                # Upload to Google Cloud Storage instead of local storage
+                image_url = gcs_upload_image(file, "product-image")
+                if image_url:
+                    image_urls.append(image_url)
+                else:
+                    # If GCS upload fails, clean up any uploaded images
+                    for url in image_urls:
+                        delete_from_gcs(url)
+                    return jsonify({"error": "Failed to upload image to Google Cloud Storage"}), 500
+        
+        if not image_urls:
+            return jsonify({"error": "No valid images uploaded"}), 400
+            
+        print(f"Uploaded {len(image_urls)} images to GCS")
+        
+        # Create database connection
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        # Upload all images first
-        for file in files:
-            image_url = gcs_upload_image(file, "product-image")
-            if not image_url:
-                # If any upload fails, delete previously uploaded images
-                for url in uploaded_urls:
-                    delete_from_gcs(url)  # You'll need to implement this function
-                return jsonify({"error": "Image upload failed"}), 500
-            uploaded_urls.append(image_url)
-
-        # Get product details from form data
-        user_id = request.form.get("user_id")
-        name = request.form.get("name")
-        description = request.form.get("description")
-        category = request.form.get("category")
-        state = request.form.get("state")
-        price = request.form.get("price")
-
-        if not all([user_id, name, description, category, state, price]):
-            # Delete all uploaded images if validation fails
-            for url in uploaded_urls:
-                delete_from_gcs(url)
-            return jsonify({"error": "All fields are required"}), 400
-
-        # Insert the main product with first image
-        cursor.execute(
-            "INSERT INTO products (user_id, name, description, category, state, price, image_url) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (user_id, name, description, category, state, price, uploaded_urls[0])
-        )
+        
+        # Insert product into database with first image as main image
+        cursor.execute("""
+            INSERT INTO products 
+            (user_id, name, description, category, state, price, image_url, original_price, months_used)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            user_id, 
+            name, 
+            description, 
+            category, 
+            state, 
+            price, 
+            image_urls[0],  # Use first image as main product image
+            original_price if original_price else None,
+            months_used if months_used else None
+        ))
+        
+        # Get the inserted product ID
         product_id = cursor.lastrowid
-
-        # Insert additional images
-        if len(uploaded_urls) > 1:
-            for url in uploaded_urls[1:]:
-                cursor.execute(
-                    "INSERT INTO product_images (product_id, image_url) VALUES (%s, %s)",
-                    (product_id, url)
-                )
-
+        print(f"Created product with ID: {product_id}")
+        
+        # Add all images to product_images table
+        for image_url in image_urls:
+            cursor.execute("""
+                INSERT INTO product_images (product_id, image_url)
+                VALUES (%s, %s)
+            """, (product_id, image_url))
+        
         conn.commit()
         cursor.close()
         conn.close()
-
+        
         return jsonify({
-            "message": "Product uploaded successfully",
+            "message": f"Product uploaded successfully with {len(image_urls)} images",
             "product_id": product_id,
-            "images": uploaded_urls
-        }), 201
-
+            "image_urls": image_urls
+        })
+            
     except Exception as e:
-        # Delete all uploaded images if there's an error
-        for url in uploaded_urls:
-            delete_from_gcs(url)
+        print(f"Error in upload_multiple: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-    
+
 
 # Cart Routes
 @app.route('/api/cart', methods=['GET'])
@@ -687,7 +837,7 @@ def get_cart():
             return jsonify({"error": "Unauthorized"}), 401
 
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         
         cursor.execute("""
             SELECT c.id as cart_id, c.quantity, 
@@ -713,7 +863,7 @@ def get_cart():
 def get_cart_items(user_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         
         cursor.execute("""
             SELECT c.*, p.name, p.price, p.image_url, p.description 
@@ -739,7 +889,7 @@ def add_to_cart():
     
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         
         # Check if item exists in cart
         cursor.execute(
@@ -805,17 +955,33 @@ def remove_from_cart():
         print(f"Error removing item from cart: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/wishlist/check/<product_id>', methods=['POST'])
+@app.route('/api/wishlist/check/<int:product_id>', methods=['POST'])
 def check_wishlist_status(product_id):
     data = request.get_json()
     user_id = data.get('userId')
+    
     try:
+        # First, get the image_url for this product
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
 
+        # Get the product's image_url
         cursor.execute(
-            "SELECT * FROM wishlist WHERE users_id = %s AND product_id = %s",
-            (user_id, product_id)
+            "SELECT image_url FROM products WHERE id = %s",
+            (product_id,)
+        )
+        product = cursor.fetchone()
+        
+        if not product:
+            conn.close()
+            return jsonify({"status": "not_exists", "error": "Product not found"}), 404
+            
+        image_url = product['image_url']
+        
+        # Check if this image_url is in the user's wishlist
+        cursor.execute(
+            "SELECT * FROM wishlist WHERE users_id = %s AND image_url = %s",
+            (user_id, image_url)
         )
         wishlist_item = cursor.fetchone()
 
@@ -825,6 +991,7 @@ def check_wishlist_status(product_id):
             return jsonify({"status": "exists"})
         else:
             return jsonify({"status": "not_exists"})
+            
     except Exception as e:
         print(f"Error checking wishlist status: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -834,15 +1001,17 @@ def check_wishlist_status(product_id):
 @app.route('/api/checkout', methods=['POST'])
 def create_order():
     try:
-        user_id = get_current_user_id()
-        if not user_id:
-            return jsonify({"error": "Unauthorized"}), 401
-
         data = request.json
+        user_id = data.get('userId')  # Get userId from request body
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
 
         try:
+            # Start transaction
+            conn.start_transaction()
 
             # Get cart items first
             cursor.execute("""
@@ -859,19 +1028,19 @@ def create_order():
             # Calculate total amount
             total_amount = sum(item['price'] * item['quantity'] for item in cart_items)
 
-            # Create order
+            # Create order - Make sure user_id is cast to INTEGER
             cursor.execute("""
                 INSERT INTO orders (user_id, total_amount, status) 
-                VALUES (%s, %s, 'pending')
+                VALUES (CAST(%s AS UNSIGNED), %s, 'pending')
             """, (user_id, total_amount))
             
             order_id = cursor.lastrowid
 
-            # Create delivery address
+            # Create delivery address - Make sure user_id is cast to INTEGER
             cursor.execute("""
                 INSERT INTO delivery_addresses 
                 (order_id, user_id, full_name, phone, address, city, state, pincode, hostel_room)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, CAST(%s AS UNSIGNED), %s, %s, %s, %s, %s, %s, %s)
             """, (
                 order_id,
                 user_id,
@@ -892,12 +1061,11 @@ def create_order():
                 """, (order_id, item['product_id'], item['quantity'], item['price']))
 
             # Clear cart
-            cursor.execute("DELETE FROM cart WHERE user_id = %s", (user_id,))
+            cursor.execute("DELETE FROM cart WHERE user_id = CAST(%s AS UNSIGNED)", (user_id,))
 
             # Commit transaction
             conn.commit()
 
-            print(f"Order created successfully: {order_id}")
             return jsonify({
                 "message": "Order placed successfully",
                 "orderId": order_id
@@ -923,7 +1091,7 @@ def get_orders():
             return jsonify({"error": "Unauthorized"}), 401
 
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor = conn.cursor(dictionary=True)
         
         # Updated query with correct JOIN condition
         cursor.execute("""
@@ -992,31 +1160,25 @@ def get_orders():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/orders/<order_id>', methods=['GET'])
+@app.route('/api/orders/<int:order_id>', methods=['GET'])
 def get_order_details(order_id):
     try:
-        user_id = get_current_user_id()
-        if not user_id:
-            return jsonify({"error": "Unauthorized"}), 401
-
         conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-        
+        cursor = conn.cursor(dictionary=True)
+
         # Get order details
         cursor.execute("""
             SELECT o.*, 
-                   da.full_name, da.phone, da.address, da.city, da.state, 
-                   da.pincode, da.hostel_room
+                   d.full_name, d.phone, d.address, d.city, d.state, d.pincode, d.hostel_room
             FROM orders o
-            LEFT JOIN delivery_addresses da ON da.user_id = o.user_id  # Changed JOIN condition
-            WHERE o.id = %s AND o.user_id = %s
-        """, (order_id, user_id))
-        
+            LEFT JOIN delivery_addresses d ON o.id = d.order_id
+            WHERE o.id = %s
+        """, (order_id,))
         order = cursor.fetchone()
-        
+
         if not order:
             return jsonify({"error": "Order not found"}), 404
-            
+
         # Get order items
         cursor.execute("""
             SELECT oi.*, p.name, p.image_url
@@ -1024,41 +1186,117 @@ def get_order_details(order_id):
             JOIN products p ON oi.product_id = p.id
             WHERE oi.order_id = %s
         """, (order_id,))
-        
         items = cursor.fetchall()
-        
-        # Format the response with proper date handling
-        order['created_at'] = order['created_at'].isoformat() if order['created_at'] else None
-        order['updated_at'] = order['updated_at'].isoformat() if order['updated_at'] else None
-        
+
+        # Construct response
         response = {
-            'id': order['id'],
-            'status': order['status'],
-            'total_amount': float(order['total_amount']),
-            'created_at': order['created_at'],
-            'updated_at': order['updated_at'],
-            'delivery_address': {
-                'full_name': order['full_name'],
-                'phone': order['phone'],
-                'address': order['address'],
-                'city': order['city'],
-                'state': order['state'],
-                'pincode': order['pincode'],
-                'hostel_room': order['hostel_room']
+            "id": order['id'],
+            "user_id": order['user_id'],
+            "status": order['status'],
+            "total_amount": float(order['total_amount']),
+            "created_at": order['created_at'].isoformat(),
+            "delivery_address": {
+                "full_name": order['full_name'],
+                "phone": order['phone'],
+                "address": order['address'],
+                "city": order['city'],
+                "state": order['state'],
+                "pincode": order['pincode'],
+                "hostel_room": order['hostel_room']
             },
-            'items': [{
-                'id': item['id'],
-                'name': item['name'],
-                'quantity': item['quantity'],
-                'price': float(item['price']),
-                'image_url': item['image_url']
+            "items": [{
+                "id": item['id'],
+                "product_id": item['product_id'],
+                "quantity": item['quantity'],
+                "price": float(item['price']),
+                "name": item['name'],
+                "image_url": item['image_url']
             } for item in items]
         }
-        
+
+        cursor.close()
         conn.close()
+
         return jsonify(response)
-        
+
     except Exception as e:
         print(f"Error fetching order details: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/orders/user/<int:user_id>', methods=['GET'])
+def get_user_orders(user_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # First, get all orders for the user
+        cursor.execute("""
+            SELECT o.id, o.total_amount, o.status, o.created_at
+            FROM orders o
+            WHERE o.user_id = %s
+        """, (user_id,))
+        
+        orders_data = cursor.fetchall()
+        
+        # Format the orders data
+        orders = []
+        for order in orders_data:
+            # Get delivery address for this order
+            cursor.execute("""
+                SELECT full_name, phone, address, city, state, pincode, hostel_room
+                FROM delivery_addresses
+                WHERE order_id = %s
+            """, (order['id'],))
+            
+            address_data = cursor.fetchone() or {}
+            
+            # Get order items for this order
+            cursor.execute("""
+                SELECT oi.product_id, oi.quantity, oi.price, p.name, p.image_url
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                WHERE oi.order_id = %s
+            """, (order['id'],))
+            
+            items_data = cursor.fetchall() or []
+            
+            # Format order data
+            orders.append({
+                'id': order['id'],
+                'total_amount': float(order['total_amount']),
+                'status': order['status'],
+                'created_at': order['created_at'].isoformat() if order['created_at'] else None,
+                'delivery_address': {
+                    'full_name': address_data.get('full_name', ''),
+                    'phone': address_data.get('phone', ''),
+                    'address': address_data.get('address', ''),
+                    'city': address_data.get('city', ''),
+                    'state': address_data.get('state', ''),
+                    'pincode': address_data.get('pincode', '')
+                },
+                'items': [
+                    {
+                        'id': item['product_id'],
+                        'quantity': item['quantity'],
+                        'price': float(item['price']),
+                        'name': item['name'],
+                        'image_url': item['image_url']
+                    }
+                    for item in items_data
+                ]
+            })
+        
+        cursor.close()
+        conn.close()
+        return jsonify(orders)
+        
+    except Exception as e:
+        print(f"Error fetching user orders: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
 
 # curl -X POST -F "image=@Zoro-Wallpaper-4k.jpg" http://127.0.0.1:5000/upload-image
